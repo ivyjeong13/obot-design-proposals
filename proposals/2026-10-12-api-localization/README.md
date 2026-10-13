@@ -5,7 +5,7 @@
 
 ## Summary
 
-Define a request-scoped localization contract for Obot API responses, starting with auth providers, model providers, local auth, and the associated SCIM setup flow responses. Obot-owned text lives in reviewable JSON message catalogs in `otto8/pkg/i18n/messages`. The API selects a locale from `Accept-Language`, renders human-facing text at the response boundary. Provider-owned display text stays beside its manifest in `providers` or `enterprise-providers` YAML under `locales`. 
+Define a request-scoped localization contract for Obot API responses, starting with auth providers, model providers, local auth, and the associated SCIM setup flow responses. Obot-owned text lives in reviewable JSON message catalogs in `otto8/pkg/i18n/messages`. The API selects a locale from `Accept-Language`, renders human-facing text at the response boundary. Provider-owned display text will be switched to handlebar variable references that will utilize the aforementioned JSON message catalogs.
 
 ## Related issues
 
@@ -46,7 +46,7 @@ Backend i18n changes require a Go rebuild; provider YAML follows the existing re
 
 ### Ownership and authoring
 
-Translation objects contain only display fields; no localized command, parameter identifier, entitlement, secret flag, or other operational property is accepted. The public response resolves the requested values and omits the raw `locales` maps.
+Translation objects contain only display fields; no localized command, parameter identifier, entitlement, secret flag, or other operational property is accepted. The public response resolves the requested values to the appropriate locale, if available, or falls back to English.
 
 For Obot-owned strings in the server-side layer, similarly to UI, these will be contained/owned in the `pkg/i18n/messages` directory, where they are separated by feature and locale.
 
@@ -68,13 +68,29 @@ Example:
 
 Obot-owned strings use stable keys in `pkg/i18n/messages/{area}/{locale}.json`, with English as the required source. Keys must be unique across files for a locale, and translated placeholders must match the English source. Missing or empty translations fall back to English. Local auth provider metadata and Okta SCIM-generated parameter guidance read from this catalog instead of embedding translatable prose in Go. For consistency, product terms and navigation labels should be reviewed against UI terminology.
 
-For auth/model providers, the provider manifests keep English `name`, `description`, `friendlyName`, and parameter `description` values as the source and fallback. Each provider and each parameter can have a sibling `locales` map keyed by BCP 47 tag. 
+For auth/model providers, the provider manifests will update the appropriate `name`, `description`, `friendlyName`, and parameter `description` values to handlebar variables that will match to an appropriate `{area}/{locale}.json` key/value pair.
+
+Example:
+
+```
+    name: "${google_auth_provider_name}"
+    command: "google-auth-provider/bin/obot-provider"
+    icon: "/admin/assets/google_icon_small.png"
+    iconDark: "/admin/assets/google_icon_small.png"
+    description: "${google_auth_provider_description}"
+    link: "https://google.com/"
+    requiredConfigurationParameters:
+    - name: "OBOT_GOOGLE_AUTH_PROVIDER_CLIENT_ID"
+        friendlyName: "${google_auth_provider_client_id_friendly_name}"
+        description: "${google_auth_provider_client_id_description}"
+    ...
+```
 
 ### Request and response contract
 
-The API parses `Accept-Language` weights and selects one positive-weight locale from backend catalog locales plus the `locales` keys available on provider metadata and parameters in the response. It tries the requested tag and its parents, then a compatible base language/script, and defaults to `en` for absent, invalid, or unsupported input. A provider list selects one response locale from the combined available tags of its items; a detail response uses that provider's tags. Fields without text for the selected locale use their English value. The response adds `Vary: Accept-Language` wherever its language can vary.
+The API parses `Accept-Language` weights and selects one positive-weight locale from backend catalog locales. It tries the requested tag and its parents, then a compatible base language/script, and defaults to `en` for absent, invalid, or unsupported input. A provider list will supply the handlebar variables that need to be filled with the selected locale or return empty if the key/value pair is not found. Fields without text for the selected locale use their English value. The response adds `Vary: Accept-Language` wherever its language can vary.
 
-Localization runs on a copy of the served manifest/parameter data at the API boundary, after effective auth provider parameters have been calculated. Persisted provider resources, provider process configuration, and status computation remain language neutral. Errors with application-authored text render a message key using the request locale; dynamic names/counts are arguments. Background calls without a request locale use English. Raw errors from external providers will not be translated.
+Localization runs on a copy of the served manifest/parameter data at the API boundary, after effective provider parameters have been calculated. Persisted provider resources, provider process configuration, and status computation remain language neutral. Errors with application-authored text render a message key using the request locale; dynamic names/counts are arguments. Background calls without a request locale use English. Raw errors from external providers will not be translated.
 
 ### Completion criteria for this slice
 
@@ -88,7 +104,7 @@ Decided against because existing behavior allows self-hosted Obot users to point
 
 ## Trade-offs
 
-The two authoring locations match ownership, but it is recommended translators review JSON catalogs and provider YAML. Catalogs embedded in Go are easy to ship and validate but require a backend release for copy changes. YAML-only locale additions can appear through provider registry reloads, although API-owned messages for that locale still fall back to English.
+The two authoring locations match ownership, but it is recommended translators review JSON catalogs and provider YAML. Catalogs embedded in Go are easy to ship and validate but require a backend release for copy changes.
 
 ## Risks and open questions
 
@@ -96,11 +112,11 @@ Not applicable.
 
 ## Rollout and migration
 
-The work spans three repositories. Add `locales` maps to provider manifests in `/enterprise-providers` and `/providers`. These changes should be merged before the backend changes to obot. There shouldn't be any need to do a migration.
+The work spans three repositories. Update provider manifests in `/enterprise-providers` and `/providers` to handlebar variables where necessary (name, description, friendlyName, etc). These changes should be merged before the backend changes to obot. There shouldn't be any need to do a migration.
 
 ## Testing and validation
 
-- Test auth/model provider list and detail responses with translated metadata and parameters, including effective SCIM parameters; assert the persisted manifest is unchanged and public `locales` maps are absent.
+- Test auth/model provider list and detail responses with translated metadata and parameters, including effective SCIM parameters; assert the persisted manifest is unchanged.
 - Test local auth, provider-operation, and SCIM setup/enforcement messages through API paths in at least one non-English locale; assert status codes and structured response fields remain stable.
 
 ## References
